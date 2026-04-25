@@ -1,0 +1,17 @@
+{
+  "name": "meetlive-signaling",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "bun --hot index.ts",
+    "start": "bun index.ts"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.1",
+    "mediasoup": "^3.19.0",
+    "nanoid": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.0"
+  }
+}
