@@ -1,0 +1,218 @@
+// ============================================
+// MeetLive - Online Meeting Platform Schema
+// Designed for PostgreSQL migration
+// Currently using SQLite for development
+// ============================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// User Management
+// ============================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  name          String
+  avatar        String?
+  timezone      String    @default("UTC")
+  isEmailVerified Boolean  @default(false)
+  emailVerificationToken String?
+  passwordResetToken    String?
+  passwordResetExpires  DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  hostedMeetings   Meeting[]   @relation("MeetingHost")
+  meetingInvites   MeetingInvite[]
+  meetingParticipants MeetingParticipant[]
+  userSessions     UserSession[]
+  calendarIntegrations CalendarIntegration[]
+  auditLogs        AuditLog[]
+  notifications    Notification[]
+
+  @@index([email])
+}
+
+model UserSession {
+  id           String   @id @default(cuid())
+  userId       String
+  refreshToken String   @unique
+  userAgent    String?
+  ipAddress    String?
+  expiresAt    DateTime
+  createdAt    DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshToken])
+}
+
+// ============================================
+// Meeting Management
+// ============================================
+
+model Meeting {
+  id                String    @id @default(cuid())
+  title             String
+  description       String?
+  hostId            String
+  type              String    @default("public")  // "public" | "private"
+  meetingCode       String    @unique              // short code for URLs
+  joinLink          String    @unique
+  joinToken         String?                        // token for private meetings
+  scheduledDate     DateTime?
+  startTime         DateTime?
+  endTime           DateTime?
+  timezone          String    @default("UTC")
+  waitingRoomEnabled   Boolean @default(false)
+  muteOnEntry          Boolean @default(false)
+  audioOnlyAllowed     Boolean @default(false)
+  isLocked             Boolean @default(false)
+  status               String   @default("scheduled")  // "scheduled" | "active" | "ended" | "cancelled"
+  maxParticipants      Int      @default(50)
+  expiresAt            DateTime?
+  recurringPattern     String?  // "daily" | "weekly" | "monthly" | "custom"
+  recurringEndDate     DateTime?
+  googleCalendarEventId String?
+  hostName             String?  // denormalized for quick display
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  host         User                 @relation("MeetingHost", fields: [hostId], references: [id], onDelete: Cascade)
+  invites      MeetingInvite[]
+  participants MeetingParticipant[]
+  accessRules  MeetingAccessRule[]
+  auditLogs    AuditLog[]
+
+  @@index([hostId])
+  @@index([meetingCode])
+  @@index([status])
+  @@index([scheduledDate])
+}
+
+model MeetingInvite {
+  id          String    @id @default(cuid())
+  meetingId   String
+  email       String
+  status      String    @default("pending")  // "pending" | "accepted" | "rejected" | "revoked"
+  guestName   String?
+  joinedAt    DateTime?
+  invitedAt   DateTime  @default(now())
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [email], references: [email], onDelete: NoAction, onUpdate: Cascade)
+
+  @@unique([meetingId, email])
+  @@index([meetingId])
+  @@index([email])
+  @@index([status])
+}
+
+model MeetingParticipant {
+  id          String    @id @default(cuid())
+  meetingId   String
+  userId      String?
+  email       String
+  displayName String
+  role        String    @default("participant")  // "host" | "participant" | "co_host"
+  status      String    @default("waiting")       // "waiting" | "active" | "left" | "removed"
+  mediaStatus String    @default("{}")            // JSON: { audio: true, video: false }
+  joinedAt    DateTime  @default(now())
+  leftAt      DateTime?
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([meetingId])
+  @@index([userId])
+  @@index([email])
+}
+
+model MeetingAccessRule {
+  id          String   @id @default(cuid())
+  meetingId   String
+  ruleType    String   @default("email_whitelist")  // "email_whitelist" | "domain_whitelist" | "token"
+  ruleValue   String                                    // JSON array of emails or domain list
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId])
+}
+
+// ============================================
+// Calendar Integration
+// ============================================
+
+model CalendarIntegration {
+  id              String   @id @default(cuid())
+  userId          String
+  provider        String   @default("google")  // "google" | "outlook" - extensible
+  accessToken     String
+  refreshToken    String?
+  tokenExpiresAt  DateTime
+  calendarId      String?
+  isEnabled       Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([provider])
+}
+
+// ============================================
+// Notifications
+// ============================================
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  type        String                          // "meeting_invite" | "meeting_reminder" | "meeting_updated" | "meeting_cancelled"
+  title       String
+  message     String
+  data        String?                         // JSON metadata
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([type])
+}
+
+// ============================================
+// Audit Logs
+// ============================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  meetingId  String?
+  action     String                                // "meeting_created" | "meeting_joined" | "participant_removed" etc.
+  details    String?                               // JSON metadata
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  meeting Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([meetingId])
+  @@index([action])
+  @@index([createdAt])
+}
